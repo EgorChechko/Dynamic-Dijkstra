@@ -131,69 +131,115 @@ class DynamicGraph:
                     heappush(h, (nd, u))
 
     def _decrementalDijkstra(self, x, y, newW):
+        # Alshammari, Rezgui, AKCE 2020, Algorithm 2.
         self._set_weight(x, y, newW)
         P = self.P
         ch = self.childrens
         d = self.d
         adj = self.adj
         N = self.N
+        start = self.start
         if P[y] != x:
             if P[x] == y:
                 x, y = y, x
             else:
                 return
-        mark = [0] * (N + 1)
-        affected = []
+
+        red = bytearray(N + 1)
+        affected = 0
+        stack = [y]
+        while stack:
+            w = stack.pop()
+            if red[w]:
+                continue
+            red[w] = 1
+            affected += 1
+            stack.extend(ch[w])
+        if affected > self.fallback * N:
+            self.recompute()
+            return
+
+        ver = [0] * (N + 1)
+        bestkey = [0.0] * (N + 1)
+        seen_gen = [0] * (N + 1)
+        seq = 0
+        gen = 0
+        h = []
         heappush = heapq.heappush
         heappop = heapq.heappop
-        limit = self.fallback * N
-        h = [(d[y], y)]
+
+        def insert(v, key):
+            nonlocal seq
+            if v == start:
+                return
+            cur = ver[v]
+            if cur and key >= bestkey[v]:
+                return
+            seq += 1
+            ver[v] = seq
+            bestkey[v] = key
+            heappush(h, (key, seq, v))
+
+        def whiten(root):
+            nonlocal gen
+            gen += 1
+            stack = [root]
+            while stack:
+                v = stack.pop()
+                if seen_gen[v] == gen:
+                    continue
+                seen_gen[v] = gen
+                red[v] = 0
+                stack.extend(ch[v])
+
+        insert(y, d[y])
+        steps = 0
+        limit = 3 * N
         while h:
-            _, u = heappop(h)
-            du = d[u]
-            alt = -1
-            for p, w in adj[u]:
-                if not mark[p] and d[p] + w == du:
-                    alt = p
-                    break
-            if alt != -1:
-                _relink(P, ch, u, alt)
+            key, mark, u = heappop(h)
+            if mark != ver[u]:
                 continue
-            mark[u] = 1
-            affected.append(u)
-            if len(affected) > limit:
+            ver[u] = 0
+            steps += 1
+            if steps > limit:
                 self.recompute()
                 return
-            for c in ch[u]:
-                heappush(h, (d[c], c))
-        for v in affected:
-            d[v] = inf
-            _relink(P, ch, v, -1)
-        h = []
-        for v in affected:
-            best = inf
-            best_u = -1
-            for u, w in adj[v]:
-                if not mark[u]:
-                    c = d[u] + w
-                    if c < best:
-                        best = c
-                        best_u = u
-            if best < inf:
-                d[v] = best
-                _relink(P, ch, v, best_u)
-                heappush(h, (best, v))
-        while h:
-            dv, v = heappop(h)
-            if dv != d[v]:
-                continue
-            for u, w in adj[v]:
-                if mark[u]:
-                    nd = dv + w
-                    if nd < d[u]:
-                        d[u] = nd
-                        _relink(P, ch, u, v)
-                        heappush(h, (nd, u))
+            old = d[u]
+            d[u] = inf
+            _relink(P, ch, u, -1)
+
+            best_v = -1
+            best_d = inf
+            best_is_red = 1
+            for p, w in adj[u]:
+                dp = d[p]
+                if dp == inf or w == inf:
+                    continue
+                cand = dp + w
+                p_red = red[p]
+                if cand < best_d or (cand == best_d and best_is_red and not p_red):
+                    best_d = cand
+                    best_v = p
+                    best_is_red = p_red
+
+            if best_v != -1:
+                if best_is_red:
+                    d[u] = inf
+                    insert(u, inf)
+                else:
+                    red[u] = 0
+                    d[u] = best_d
+                    _relink(P, ch, u, best_v)
+
+            if d[u] != old:
+                du = d[u]
+                for v, w in adj[u]:
+                    if P[v] == u:
+                        insert(v, d[v])
+                    elif w != inf and du + w < d[v]:
+                        insert(v, du + w)
+            else:
+                whiten(u)
 
     def recompute(self):
         self.init(self.N, self.graph, self.W, self.start)
