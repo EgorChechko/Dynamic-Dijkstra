@@ -47,17 +47,28 @@ def fail(text):
     raise SystemExit(1)
 
 
+def _ref_parent_ok(d, P, W, v, start):
+    p = P[v]
+    if v == start:
+        return d[v] == 0 and p == -1
+    if d[v] == inf:
+        return p == -1
+    w = W.get((p, v)) if p != -1 else None
+    return w is not None and w < inf and d[v] == d[p] + w
+
+
 def check(g, head):
-    ref = full_dijkstra(g.N, g.graph, g.W, g.start)
+    ref_d, ref_P, ref_ch = full_dijkstra(g.N, g.graph, g.W, g.start)
     bad = []
     for v in range(1, g.N + 1):
-        if g.d[v] != ref[v]:
+        if g.d[v] != ref_d[v]:
             bad.append(v)
     if bad:
         lines = [head, "расхождения расстояний:"]
         for v in bad[:12]:
             lines.append(
-                f"  v={v} алгоритм={g.d[v]} дейкстра={ref[v]} родитель={g.P[v]}"
+                f"  v={v} алгоритм={g.d[v]} дейкстра={ref_d[v]} "
+                f"родитель={g.P[v]} дейкстра-родитель={ref_P[v]}"
             )
         if len(bad) > 12:
             lines.append(f"  ... ещё {len(bad) - 12}")
@@ -97,6 +108,25 @@ def check(g, head):
         for c in kids:
             if g.P[c] != p:
                 fail(f"{head}\nchildrens[{p}] содержит {c}, родитель {g.P[c]}")
+
+    ref_count = [0] * (g.N + 1)
+    for v in range(1, g.N + 1):
+        if not _ref_parent_ok(ref_d, ref_P, g.W, v, g.start):
+            p = ref_P[v]
+            dp = ref_d[p] if p != -1 else None
+            fail(
+                f"{head}\nдерево дейкстры не тугое: {p}->{v} "
+                f"d={ref_d[v]} d[p]={dp}"
+            )
+        if ref_P[v] != -1:
+            ref_count[ref_P[v]] += 1
+    for p in range(1, g.N + 1):
+        kids = ref_ch[p]
+        if len(kids) != ref_count[p] or len(kids) != len(set(kids)):
+            fail(f"{head}\nchildrens дейкстры[{p}]={kids} не совпадает с родителями")
+        for c in kids:
+            if ref_P[c] != p:
+                fail(f"{head}\nchildrens дейкстры[{p}] содержит {c}, родитель {ref_P[c]}")
 
 
 def one_update(rnd, g, edges, wmax):

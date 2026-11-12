@@ -24,13 +24,33 @@ def load():
     return N, graph, W
 
 
+def _tight_parent(d, P, W, v, start):
+    p = P[v]
+    if v == start:
+        return d[v] == 0 and p == -1
+    if d[v] == float("inf"):
+        return p == -1
+    w = W.get((p, v)) if p != -1 else None
+    return w is not None and w < float("inf") and d[v] == d[p] + w
+
+
 def check(g, ref, what):
-    if g.d == ref:
+    ref_d, ref_P, _ref_ch = ref
+    bad = [v for v in range(1, g.N + 1) if g.d[v] != ref_d[v]]
+    if not bad:
+        bad = [
+            v for v in range(1, g.N + 1)
+            if not _tight_parent(g.d, g.P, g.W, v, g.start)
+            or not _tight_parent(ref_d, ref_P, g.W, v, g.start)
+        ]
+    if not bad:
         return
-    bad = [v for v in range(1, g.N + 1) if g.d[v] != ref[v]][:8]
     print("РАСХОЖДЕНИЕ", what)
-    for v in bad:
-        print(f"  v={v} алгоритм={g.d[v]} дейкстра={ref[v]} родитель={g.P[v]}")
+    for v in bad[:8]:
+        print(
+            f"  v={v} алгоритм={g.d[v]} дейкстра={ref_d[v]} "
+            f"родитель={g.P[v]} дейкстра-родитель={ref_P[v]}"
+        )
     raise SystemExit(1)
 
 
@@ -119,8 +139,36 @@ def random_new_weight(old, rnd):
     return new
 
 
+def run_subtree_band(N, graph, W, probe, size, rnd, lo, hi, label, rows, limit=6):
+    band = tree_edges_in_band(probe, size, lo, hi)
+    rnd.shuffle(band)
+    print(f"Древесных рёбер с поддеревом {lo}..{hi}: {len(band)}")
+    for a, b in band[:limit]:
+        h = new_graph(N, graph, W)
+        old = h.W[(a, b)]
+        apply_edge(h, a, b, old * 5, label, rows)
+
+
+def report_changed_band(rows, lo, hi):
+    in_band = [r for r in rows if lo <= r["changed"] <= hi]
+    if not in_band:
+        print(f"Ни один шаг не изменил от {lo} до {hi} расстояний.")
+        return
+    speeds = [r["speed"] for r in in_band]
+    times = [r["t_alg"] for r in in_band]
+    print(
+        f"Изменилось от {lo} до {hi} расстояний: {len(in_band)} шагов, "
+        f"медиана {median(r['changed'] for r in in_band):.0f} вершин, "
+        f"медиана времени {median(times)*1e3:.0f} мс против полной Дейкстры "
+        f"{median(r['t_full'] for r in in_band)*1e3:.0f} мс, "
+        f"медиана выигрыша {median(speeds):.1f}x "
+        f"(от {min(speeds):.1f}x до {max(speeds):.1f}x)."
+    )
+
+
 def scenario_edges(N, graph, W, rnd):
     lo, hi = int(0.10 * N), int(0.40 * N)
+    lo_hi, hi_hi = int(0.50 * N), N
     g = new_graph(N, graph, W)
     print()
     print(f"Случайные рёбра, источник {SRC}, fallback = {g.fallback}")
@@ -135,32 +183,16 @@ def scenario_edges(N, graph, W, rnd):
         apply_edge(g, a, b, random_new_weight(old, rnd), "случайное", rows)
 
     probe = new_graph(N, graph, W)
-    band = tree_edges_in_band(probe, subtree_sizes(probe), lo, hi)
-    rnd.shuffle(band)
-    print(f"Древесных рёбер с поддеревом {lo}..{hi}: {len(band)}")
+    size = subtree_sizes(probe)
     band_rows = []
-    for a, b in band[:6]:
-        h = new_graph(N, graph, W)
-        old = h.W[(a, b)]
-        apply_edge(h, a, b, old * 5, "случайное 10-40%", band_rows)
-        rows.append(band_rows[-1])
+    run_subtree_band(N, graph, W, probe, size, rnd, lo, hi, "случайное 10-40%", band_rows)
+    high_rows = []
+    run_subtree_band(N, graph, W, probe, size, rnd, lo_hi, hi_hi, "случайное 50-100%", high_rows)
     print("Расстояния совпали с полным пересчётом на каждом шаге.")
     print()
     print("Выигрыш — во сколько раз смена ребра быстрее полного пересчёта Дейкстры.")
-    in_band = [r for r in rows if lo <= r["changed"] <= hi]
-    if in_band:
-        speeds = [r["speed"] for r in in_band]
-        times = [r["t_alg"] for r in in_band]
-        print(
-            f"Изменилось от {lo} до {hi} расстояний: {len(in_band)} шагов, "
-            f"медиана {median(r['changed'] for r in in_band):.0f} вершин, "
-            f"медиана времени {median(times)*1e3:.0f} мс против полной Дейкстры "
-            f"{median(r['t_full'] for r in in_band)*1e3:.0f} мс, "
-            f"медиана выигрыша {median(speeds):.1f}x "
-            f"(от {min(speeds):.1f}x до {max(speeds):.1f}x)."
-        )
-    else:
-        print(f"Ни один шаг не изменил от {lo} до {hi} расстояний.")
+    report_changed_band(rows + band_rows, lo, hi)
+    report_changed_band(rows + high_rows, lo_hi, hi_hi)
 
 
 def main():

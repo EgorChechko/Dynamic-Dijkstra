@@ -249,7 +249,14 @@ class DynamicGraph:
 
 
 def full_dijkstra(N, graph, W, start):
+    """Полный пересчёт расстояний и дерева кратчайших путей.
+
+    Возвращает (d, P, childrens) в том же виде, что поля DynamicGraph:
+    родитель P[v] и списки детей. При нескольких кратчайших путях родитель
+    может отличаться от дерева DynamicGraph.
+    """
     d = [inf] * (N + 1)
+    P = [-1] * (N + 1)
     d[start] = 0
     heappush = heapq.heappush
     heappop = heapq.heappop
@@ -258,10 +265,15 @@ def full_dijkstra(N, graph, W, start):
         dist_v, v = heappop(h)
         if d[v] != dist_v:
             continue
-        nbrs = graph[v]
-        for u in nbrs:
+        for u in graph[v]:
             nd = dist_v + W[(v, u)]
             if d[u] > nd:
                 d[u] = nd
+                P[u] = v
                 heappush(h, (nd, u))
-    return d
+    childrens = [[] for _ in range(N + 1)]
+    for v in range(1, N + 1):
+        p = P[v]
+        if p != -1:
+            childrens[p].append(v)
+    return d, P, childrens
